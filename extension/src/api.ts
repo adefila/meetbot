@@ -1,4 +1,4 @@
-import type { Meeting, SearchResult, Integrations, MeetingStats } from './types'
+import type { Meeting, SearchResult, Integrations, MeetingStats, BillingInfo } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 
@@ -121,6 +121,24 @@ export async function saveIntegrations(
 
 export async function getMeetingStats(token: string): Promise<MeetingStats> {
   return apiFetch<MeetingStats>('/api/meetings/stats', token)
+}
+
+export async function getBilling(token: string): Promise<BillingInfo> {
+  return apiFetch<BillingInfo>('/api/billing', token)
+}
+
+export async function createCheckout(token: string, plan: 'pro' | 'team'): Promise<{ url: string }> {
+  return apiFetch<{ url: string }>('/api/billing/checkout', token, {
+    method: 'POST',
+    body: JSON.stringify({ plan }),
+  })
+}
+
+export async function openBillingPortal(token: string): Promise<{ url: string }> {
+  return apiFetch<{ url: string }>('/api/billing/portal', token, {
+    method: 'POST',
+    body: '{}',
+  })
 }
 
 export async function joinByUrl(

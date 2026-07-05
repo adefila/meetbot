@@ -18,21 +18,21 @@ async function recallFetch(path: string, options: RequestInit = {}) {
 }
 
 export async function createBot(meetingUrl: string, meetingId: string) {
+  // AssemblyAI starts recording audio immediately on join (< 5s to recording state).
+  // meeting_captions waits for the platform's CC system to warm up (15-30s delay).
+  // Use AssemblyAI when key is available, fall back to meeting_captions.
+  const assemblyAiKey = process.env.ASSEMBLYAI_API_KEY
+  const transcriptProvider = assemblyAiKey
+    ? { assembly_ai: { api_key: assemblyAiKey } }
+    : { meeting_captions: {} }
+
   return recallFetch('/bot', {
     method: 'POST',
     body: JSON.stringify({
       meeting_url: meetingUrl,
       bot_name: 'MeetBot',
       recording_config: {
-        transcript: {
-          provider: {
-            // Uses the platform's built-in captions (Google Meet CC, Zoom CC, Teams CC).
-            // No external credentials required. Works for all platforms we support.
-            meeting_captions: {},
-          },
-        },
-        // Stream finalized transcript segments to our webhook in real time so the
-        // sidebar can show a live transcript during the call.
+        transcript: { provider: transcriptProvider },
         realtime_endpoints: [
           {
             type: 'webhook',
@@ -40,6 +40,11 @@ export async function createBot(meetingUrl: string, meetingId: string) {
             events: ['transcript.data'],
           },
         ],
+      },
+      automatic_leave: {
+        waiting_room_timeout: 300,   // leave waiting room after 5 min if not admitted
+        noone_joined_timeout: 300,   // leave if no one else joins within 5 min
+        everyone_left_timeout: 30,   // leave 30s after everyone else leaves
       },
       webhook_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/recall`,
       metadata: { meetingId },

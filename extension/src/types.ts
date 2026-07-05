@@ -62,3 +62,13 @@ export type MeetingStats = {
   meetingsWithNotes: number
   periodDays: number
 }
+
+export type BillingInfo = {
+  plan: 'free' | 'pro' | 'team'
+  planName: string
+  price: number
+  limit: number | null
+  used: number
+  remaining: number | null
+  atLimit: boolean
+}

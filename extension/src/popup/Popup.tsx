@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Meeting, AuthState, SearchResult } from '../types'
-import { getMeetings, getMeeting, joinByUrl, searchMeetings, checkHealth, ApiError } from '../api'
+import { getMeetings, getMeeting, joinByUrl, searchMeetings, checkHealth, createCheckout, ApiError } from '../api'
 import MeetingCard from './MeetingCard'
 import NoteDetail from './NoteDetail'
 import Settings from './Settings'
@@ -122,7 +122,13 @@ export default function Popup() {
       setJoinUrl(''); setJoinTitle(''); setJoinAttendees(''); setJoinType('general'); setShowJoinForm(false)
       await loadMeetings(auth.token)
     } catch (e: unknown) {
-      setJoinError(e instanceof Error ? e.message : 'Failed to join meeting')
+      const msg = e instanceof Error ? e.message : 'Failed to join meeting'
+      if (e instanceof ApiError && e.status === 402) {
+        // Free tier limit hit — offer upgrade inline
+        setJoinError(msg + ' Tap to upgrade →')
+        return
+      }
+      setJoinError(msg)
     } finally {
       setJoining(false)
     }
@@ -245,7 +251,19 @@ export default function Popup() {
               <option value="kickoff">Project kickoff</option>
               <option value="interview">Interview</option>
             </select>
-            {joinError && <p style={s.joinErr}>{joinError}</p>}
+            {joinError && (
+              joinError.includes('Tap to upgrade') ? (
+                <button
+                  style={{ ...s.joinErr, background: 'none', border: 'none', cursor: 'pointer',
+                    textDecoration: 'underline', textAlign: 'left' as const, padding: 0 }}
+                  onClick={() => auth.status === 'authenticated' && createCheckout(auth.token, 'pro').then(({ url }) => chrome.tabs.create({ url })).catch(() => {})}
+                >
+                  {joinError}
+                </button>
+              ) : (
+                <p style={s.joinErr}>{joinError}</p>
+              )
+            )}
             <button
               style={{ ...s.joinBtn, opacity: joining || !joinUrl.trim() ? 0.55 : 1 }}
               onClick={handleJoin}

@@ -16,6 +16,9 @@ export type User = {
   token_expires_at: string | null
   slack_webhook_url: string | null
   hubspot_api_key: string | null
+  plan: string | null
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
   created_at: string
 }
 

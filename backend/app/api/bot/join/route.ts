@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { createBot } from '@/lib/recall'
 import { getUserFromRequest } from '@/lib/auth'
+import { PLANS } from '@/lib/stripe'
 
 function detectPlatform(url: string): string {
   if (url.includes('meet.google.com')) return 'meet'
@@ -13,6 +14,24 @@ function detectPlatform(url: string): string {
 export async function POST(request: NextRequest) {
   const user = await getUserFromRequest(request)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Enforce monthly meeting limit for free tier
+  const plan = (user.plan ?? 'free') as keyof typeof PLANS
+  const planConfig = PLANS[plan] ?? PLANS.free
+  if (planConfig.monthlyMeetings !== Infinity) {
+    const startOfMonth = new Date()
+    startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0)
+    const { count } = await supabase
+      .from('meetings').select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id).neq('status', 'failed')
+      .gte('created_at', startOfMonth.toISOString())
+    if ((count ?? 0) >= planConfig.monthlyMeetings) {
+      return NextResponse.json({
+        error: `You've used all ${planConfig.monthlyMeetings} free meetings this month. Upgrade to Pro for unlimited meetings.`,
+        code: 'LIMIT_REACHED',
+      }, { status: 402 })
+    }
+  }
 
   const body = await request.json() as {
     meetingId?: string

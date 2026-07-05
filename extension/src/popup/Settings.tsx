@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getIntegrations, saveIntegrations, getMeetingStats } from '../api'
-import type { Integrations, MeetingStats } from '../types'
+import { getIntegrations, saveIntegrations, getMeetingStats, getBilling, createCheckout, openBillingPortal } from '../api'
+import type { Integrations, MeetingStats, BillingInfo } from '../types'
 
 type Props = { email: string; token: string; onDisconnect: () => void }
 
@@ -8,10 +8,12 @@ export default function Settings({ email, token, onDisconnect }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [integrations, setIntegrations] = useState<Integrations | null>(null)
   const [stats, setStats] = useState<MeetingStats | null>(null)
+  const [billing, setBilling] = useState<BillingInfo | null>(null)
   const [slackUrl, setSlackUrl] = useState('')
   const [hubspotKey, setHubspotKey] = useState('')
   const [saving, setSaving] = useState<'slack' | 'hubspot' | null>(null)
   const [saveMsg, setSaveMsg] = useState<{ key: string; msg: string; ok: boolean } | null>(null)
+  const [upgrading, setUpgrading] = useState(false)
 
   const toggle = (id: string) => setExpanded(prev => prev === id ? null : id)
 
@@ -21,7 +23,24 @@ export default function Settings({ email, token, onDisconnect }: Props) {
       setSlackUrl(d.slack_webhook_url ?? '')
     }).catch(() => {})
     getMeetingStats(token).then(setStats).catch(() => {})
+    getBilling(token).then(setBilling).catch(() => {})
   }, [token])
+
+  async function handleUpgrade(plan: 'pro' | 'team') {
+    setUpgrading(true)
+    try {
+      const { url } = await createCheckout(token, plan)
+      chrome.tabs.create({ url })
+    } catch { /* non-fatal */ }
+    finally { setUpgrading(false) }
+  }
+
+  async function handleManageBilling() {
+    try {
+      const { url } = await openBillingPortal(token)
+      chrome.tabs.create({ url })
+    } catch { /* non-fatal */ }
+  }
 
   async function handleSaveSlack() {
     setSaving('slack'); setSaveMsg(null)
@@ -58,6 +77,63 @@ export default function Settings({ email, token, onDisconnect }: Props) {
           <StatCard label="Action items" value={stats?.totalActionItems ?? '—'} sub="captured" />
           <StatCard label="Follow-ups" value={stats?.totalClientQuestions ?? '—'} sub="suggested" />
         </div>
+      </div>
+
+      {/* ── Plan ──────────────────────────────────────────────────────── */}
+      <div style={s.section}>
+        <SectionLabel>Plan</SectionLabel>
+        {billing?.plan === 'free' ? (
+          <div style={s.planCard}>
+            <div style={s.planCardTop}>
+              <div>
+                <div style={s.planName}>Free plan</div>
+                <div style={s.planSub}>
+                  {billing.used} / {billing.limit} meetings used this month
+                </div>
+                <div style={s.usageBar}>
+                  <div style={{
+                    ...s.usageBarFill,
+                    width: `${Math.min(100, ((billing.used / (billing.limit ?? 1)) * 100))}%`,
+                    background: billing.atLimit ? '#dc2626' : '#1a73e8',
+                  }} />
+                </div>
+              </div>
+            </div>
+            {billing.atLimit && (
+              <p style={s.limitMsg}>You've hit your free limit for this month.</p>
+            )}
+            <div style={s.planBtns}>
+              <button
+                style={{ ...s.upgradeBtn, opacity: upgrading ? 0.6 : 1 }}
+                onClick={() => handleUpgrade('pro')}
+                disabled={upgrading}
+              >
+                Upgrade to Pro · $19/mo
+              </button>
+              <button
+                style={{ ...s.upgradeBtn, background: '#0f0f0f' }}
+                onClick={() => handleUpgrade('team')}
+                disabled={upgrading}
+              >
+                Team · $49/mo · 5 seats
+              </button>
+            </div>
+            <p style={s.planFeatureNote}>Pro & Team: unlimited meetings, Slack digest, HubSpot CRM push</p>
+          </div>
+        ) : billing ? (
+          <div style={s.planCard}>
+            <div style={s.planCardTop}>
+              <div>
+                <div style={s.planName}>{billing.planName} plan · ${billing.price}/mo</div>
+                <div style={s.planSub}>{billing.used} meetings this month · unlimited</div>
+              </div>
+              <span style={{ ...s.pill, color: '#14532d', background: '#f0fdf4' }}>Active</span>
+            </div>
+            <button style={s.manageBtn} onClick={handleManageBilling}>
+              Manage subscription
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* ── Account ───────────────────────────────────────────────────── */}
@@ -373,6 +449,49 @@ const s: Record<string, React.CSSProperties> = {
   statSub: {
     fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11.5, color: '#9ca3af',
     letterSpacing: '-0.1px', marginTop: 1,
+  },
+
+  // Plan
+  planCard: {
+    background: '#f8f9fa', borderRadius: 12, padding: '14px',
+    border: '1px solid #f0f0f0',
+  },
+  planCardTop: {
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10,
+  },
+  planName: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 14,
+    color: '#0f0f0f', letterSpacing: '-0.35px',
+  },
+  planSub: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12.5, color: '#6b7280',
+    letterSpacing: '-0.2px', marginTop: 2,
+  },
+  usageBar: {
+    height: 4, background: '#e5e7eb', borderRadius: 99, marginTop: 8, overflow: 'hidden',
+  },
+  usageBarFill: {
+    height: '100%', borderRadius: 99, transition: 'width 0.3s',
+  },
+  limitMsg: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12.5, color: '#dc2626',
+    letterSpacing: '-0.2px', margin: '8px 0',
+  },
+  planBtns: { display: 'flex', flexDirection: 'column' as const, gap: 7, marginTop: 12 },
+  upgradeBtn: {
+    padding: '10px 14px', background: '#1a73e8', color: '#fff',
+    border: 'none', borderRadius: 8, fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 13.5, fontWeight: 600, cursor: 'pointer', letterSpacing: '-0.3px',
+    textAlign: 'center' as const,
+  },
+  manageBtn: {
+    marginTop: 10, padding: '8px 14px', background: '#fff', color: '#374151',
+    border: '1px solid #e0e0e0', borderRadius: 8, fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 13, cursor: 'pointer', letterSpacing: '-0.2px', width: '100%',
+  },
+  planFeatureNote: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11.5, color: '#9ca3af',
+    letterSpacing: '-0.1px', marginTop: 10, lineHeight: 1.5,
   },
 
   // Account
