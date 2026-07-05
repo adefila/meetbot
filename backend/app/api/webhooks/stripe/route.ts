@@ -22,9 +22,15 @@ type LSWebhookPayload = {
 }
 
 function verifySignature(body: string, signature: string, secret: string): boolean {
-  const hmac = crypto.createHmac('sha256', secret)
+  const hmac = crypto.createHmac('sha256', secret.trim())
   const digest = hmac.update(body).digest('hex')
-  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature))
+  try {
+    return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature.trim()))
+  } catch {
+    // Buffers are different lengths — definitely a mismatch
+    console.error('[LS webhook] signature length mismatch: expected', digest.length, 'got', signature.trim().length)
+    return false
+  }
 }
 
 function extractVariantId(payload: LSWebhookPayload): number | undefined {

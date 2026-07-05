@@ -41,22 +41,15 @@ export default function Settings({ email, token, onDisconnect }: Props) {
         setSlackChannels(d.slack_webhooks ?? [])
       }).catch(() => {})
       getMeetingStats(token).then(setStats).catch(() => {})
-      getBilling(token).then(setBilling).catch(() => {})
-    }
-
-    loadAll()
-
-    // When the popup regains focus after a checkout tab, sync with LS directly
-    // then re-fetch the full billing object so the UI reflects the new plan.
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return
+      // Sync with LS on every popup open (catches completed checkouts — popup
+      // is destroyed when a new tab opens, so visibilitychange never fires)
       syncBilling(token)
         .then(() => getBilling(token))
         .then(setBilling)
         .catch(() => getBilling(token).then(setBilling).catch(() => {}))
     }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+
+    loadAll()
   }, [token])
 
   async function handleUpgrade(plan: 'pro' | 'team') {

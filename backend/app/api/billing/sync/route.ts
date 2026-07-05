@@ -23,27 +23,42 @@ export async function POST(request: NextRequest) {
   const user = await getUserFromRequest(request)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const storeId = process.env.LEMONSQUEEZY_STORE_ID!
+  const storeId = process.env.LEMONSQUEEZY_STORE_ID
+  const lsApiKey = process.env.LEMONSQUEEZY_API_KEY
+
+  if (!lsApiKey) {
+    console.error('[billing/sync] LEMONSQUEEZY_API_KEY not set')
+    return NextResponse.json({ error: 'Billing not configured' }, { status: 500 })
+  }
 
   try {
-    // Fetch all subscriptions for this user's email from LS
-    const res = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions?filter[user_email]=${encodeURIComponent(user.email)}&filter[store_id]=${storeId}&page[size]=5`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.LEMONSQUEEZY_API_KEY}`,
-          Accept: 'application/vnd.api+json',
-        },
-      }
-    )
+    // Fetch subscriptions for this user's email — store_id filter is optional
+    const params = new URLSearchParams({
+      'filter[user_email]': user.email,
+      'page[size]': '10',
+    })
+    if (storeId) params.set('filter[store_id]', storeId)
+
+    const url = `https://api.lemonsqueezy.com/v1/subscriptions?${params}`
+    console.log('[billing/sync] fetching', url, 'for user', user.email)
+
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${lsApiKey}`,
+        Accept: 'application/vnd.api+json',
+      },
+    })
+
+    const rawText = await res.text()
+    console.log('[billing/sync] LS status', res.status, 'body:', rawText.slice(0, 500))
 
     if (!res.ok) {
-      console.error('[billing/sync] LS API error', res.status)
-      return NextResponse.json({ error: 'LS API error' }, { status: 502 })
+      return NextResponse.json({ error: 'LS API error', status: res.status }, { status: 502 })
     }
 
-    const json = await res.json() as { data: LSSubscription[] }
+    const json = JSON.parse(rawText) as { data: LSSubscription[] }
     const subs: LSSubscription[] = json.data ?? []
+    console.log('[billing/sync] found', subs.length, 'subscriptions')
 
     // Find the most recently active subscription
     const active = subs.find(
