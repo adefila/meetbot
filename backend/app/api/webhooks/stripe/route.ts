@@ -1,67 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe, getPlanFromPriceId } from '@/lib/stripe'
+import { getPlanFromVariantId } from '@/lib/lemonsqueezy'
 import { supabase } from '@/lib/supabase'
-import type Stripe from 'stripe'
+import crypto from 'crypto'
+
+type LSWebhookPayload = {
+  meta: {
+    event_name: string
+    custom_data?: { user_id?: string; plan?: string }
+  }
+  data: {
+    id: string
+    attributes: {
+      status: string
+      variant_id: number
+      customer_id: number
+      user_email: string
+      urls?: { customer_portal?: string }
+    }
+  }
+}
+
+function verifySignature(body: string, signature: string, secret: string): boolean {
+  const hmac = crypto.createHmac('sha256', secret)
+  const digest = hmac.update(body).digest('hex')
+  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature))
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.text()
-  const sig = request.headers.get('stripe-signature')!
+  const signature = request.headers.get('x-signature') ?? ''
 
-  let event: Stripe.Event
-  try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!)
-  } catch {
+  if (!verifySignature(body, signature, process.env.LEMONSQUEEZY_WEBHOOK_SECRET!)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session
-      const userId = session.metadata?.userId
-      const plan = session.metadata?.plan
-      if (userId && plan) {
-        await supabase.from('users').update({
-          plan,
-          stripe_customer_id: session.customer as string,
-          stripe_subscription_id: session.subscription as string,
-          updated_at: new Date().toISOString(),
-        }).eq('id', userId)
-      }
-      break
-    }
+  const payload = JSON.parse(body) as LSWebhookPayload
+  const eventName = payload.meta.event_name
+  const userId = payload.meta.custom_data?.user_id
+  const sub = payload.data.attributes
+  const subscriptionId = payload.data.id
 
-    case 'customer.subscription.updated': {
-      const sub = event.data.object as Stripe.Subscription
-      const userId = sub.metadata?.userId
+  switch (eventName) {
+    case 'subscription_created':
+    case 'order_created': {
       if (!userId) break
-      const priceId = sub.items.data[0]?.price.id
-      const plan = getPlanFromPriceId(priceId)
-      const active = sub.status === 'active' || sub.status === 'trialing'
+      const plan = getPlanFromVariantId(sub.variant_id)
       await supabase.from('users').update({
-        plan: active ? plan : 'free',
-        stripe_subscription_id: sub.id,
+        plan,
+        stripe_subscription_id: subscriptionId,
         updated_at: new Date().toISOString(),
       }).eq('id', userId)
       break
     }
 
-    case 'customer.subscription.deleted': {
-      const sub = event.data.object as Stripe.Subscription
-      const userId = sub.metadata?.userId
-      if (userId) {
-        await supabase.from('users').update({
-          plan: 'free',
-          stripe_subscription_id: null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', userId)
-      }
+    case 'subscription_updated': {
+      if (!userId) break
+      const plan = getPlanFromVariantId(sub.variant_id)
+      const active = sub.status === 'active' || sub.status === 'on_trial'
+      await supabase.from('users').update({
+        plan: active ? plan : 'free',
+        stripe_subscription_id: subscriptionId,
+        updated_at: new Date().toISOString(),
+      }).eq('id', userId)
       break
     }
 
-    case 'invoice.payment_failed': {
-      // Could send a payment-failed email here — for now just log
-      const invoice = event.data.object as Stripe.Invoice
-      console.warn('Payment failed for customer:', invoice.customer)
+    case 'subscription_cancelled':
+    case 'subscription_expired': {
+      if (!userId) break
+      await supabase.from('users').update({
+        plan: 'free',
+        stripe_subscription_id: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', userId)
       break
     }
   }

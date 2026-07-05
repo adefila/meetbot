@@ -1,27 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest } from '@/lib/auth'
-import { stripe } from '@/lib/stripe'
-import { supabase } from '@/lib/supabase'
 
+// Lemon Squeezy doesn't have a self-serve portal API — instead customers manage
+// their subscription via the URL in their receipt email, or we direct them to
+// the Lemon Squeezy customer portal with their subscription ID.
 export async function POST(request: NextRequest) {
   const user = await getUserFromRequest(request)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let customerId = user.stripe_customer_id
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: user.email,
-      name: user.name ?? undefined,
-      metadata: { userId: user.id },
-    })
-    customerId = customer.id
-    await supabase.from('users').update({ stripe_customer_id: customerId }).eq('id', user.id)
+  if (!user.stripe_subscription_id) {
+    return NextResponse.json({ error: 'No active subscription' }, { status: 404 })
   }
 
-  const session = await stripe.billingPortal.sessions.create({
-    customer: customerId,
-    return_url: `${process.env.NEXT_PUBLIC_APP_URL}/auth/success`,
-  })
-
-  return NextResponse.json({ url: session.url })
+  // Fetch the subscription from Lemon Squeezy to get the customer portal URL
+  try {
+    const res = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${user.stripe_subscription_id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.LEMONSQUEEZY_API_KEY}`,
+          Accept: 'application/vnd.api+json',
+        },
+      }
+    )
+    if (!res.ok) throw new Error(`LS API ${res.status}`)
+    const data = await res.json() as {
+      data: { attributes: { urls: { customer_portal: string } } }
+    }
+    const url = data.data.attributes.urls.customer_portal
+    return NextResponse.json({ url })
+  } catch (err) {
+    console.error('Portal error:', err)
+    return NextResponse.json({ error: 'Failed to get portal URL' }, { status: 500 })
+  }
 }

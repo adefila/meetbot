@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
-import { PLANS } from '@/lib/stripe'
+import { PLANS } from '@/lib/lemonsqueezy'
 
 export async function GET(request: NextRequest) {
   const user = await getUserFromRequest(request)

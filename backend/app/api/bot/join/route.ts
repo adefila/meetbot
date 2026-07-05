@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { createBot } from '@/lib/recall'
 import { getUserFromRequest } from '@/lib/auth'
-import { PLANS } from '@/lib/stripe'
+import { PLANS } from '@/lib/lemonsqueezy'
 
 function detectPlatform(url: string): string {
   if (url.includes('meet.google.com')) return 'meet'
