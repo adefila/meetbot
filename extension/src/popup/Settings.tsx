@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getIntegrations, saveIntegrations, getMeetingStats, getBilling, createCheckout, openBillingPortal } from '../api'
+import { getIntegrations, saveIntegrations, getMeetingStats, getBilling, syncBilling, createCheckout, openBillingPortal } from '../api'
 import type { Integrations, MeetingStats, BillingInfo, SlackChannel } from '../types'
 
 const MEETING_TYPES = [
@@ -46,9 +46,15 @@ export default function Settings({ email, token, onDisconnect }: Props) {
 
     loadAll()
 
-    // Re-fetch billing when the popup regains focus — handles the case where
-    // the user completed a checkout in another tab and comes back.
-    const onVisible = () => { if (document.visibilityState === 'visible') getBilling(token).then(setBilling).catch(() => {}) }
+    // When the popup regains focus after a checkout tab, sync with LS directly
+    // then re-fetch the full billing object so the UI reflects the new plan.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      syncBilling(token)
+        .then(() => getBilling(token))
+        .then(setBilling)
+        .catch(() => getBilling(token).then(setBilling).catch(() => {}))
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [token])

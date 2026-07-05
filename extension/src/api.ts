@@ -127,6 +127,10 @@ export async function getBilling(token: string): Promise<BillingInfo> {
   return apiFetch<BillingInfo>('/api/billing', token)
 }
 
+export async function syncBilling(token: string): Promise<{ plan: string; planName: string; synced: boolean }> {
+  return apiFetch('/api/billing/sync', token, { method: 'POST', body: '{}' })
+}
+
 export async function createCheckout(token: string, plan: 'pro' | 'team'): Promise<{ url: string }> {
   return apiFetch<{ url: string }>('/api/billing/checkout', token, {
     method: 'POST',
