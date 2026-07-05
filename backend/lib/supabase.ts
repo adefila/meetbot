@@ -5,6 +5,12 @@ const supabaseKey = process.env.SUPABASE_SERVICE_KEY!
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
+export type SlackChannel = {
+  label: string
+  meetingTypes: string[]
+  webhookUrl: string
+}
+
 export type User = {
   id: string
   google_id: string
@@ -15,6 +21,7 @@ export type User = {
   refresh_token: string | null
   token_expires_at: string | null
   slack_webhook_url: string | null
+  slack_webhooks: SlackChannel[] | null
   hubspot_api_key: string | null
   plan: string | null
   stripe_customer_id: string | null

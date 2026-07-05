@@ -20,13 +20,13 @@ export const PLANS = {
     name: 'Pro',
     monthlyMeetings: Infinity,
     variantId: process.env.LEMONSQUEEZY_PRO_VARIANT_ID!,
-    price: 19,
+    price: 5,
   },
   team: {
     name: 'Team',
     monthlyMeetings: Infinity,
     variantId: process.env.LEMONSQUEEZY_TEAM_VARIANT_ID!,
-    price: 49,
+    price: 15,
   },
 } as const
 

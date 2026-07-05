@@ -47,8 +47,15 @@ export type AuthState =
   | { status: 'unauthenticated' }
   | { status: 'authenticated'; token: string; email: string }
 
+export type SlackChannel = {
+  label: string
+  meetingTypes: string[]
+  webhookUrl: string
+}
+
 export type Integrations = {
   slack_webhook_url: string | null
+  slack_webhooks: SlackChannel[]
   hubspot_api_key: string | null
   hubspot_connected: boolean
 }

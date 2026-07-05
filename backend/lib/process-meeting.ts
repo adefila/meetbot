@@ -187,6 +187,25 @@ export async function sendSummaryEmails(
   return { sent, failed }
 }
 
+/**
+ * Returns the Slack webhook URL to use for this meeting.
+ * Pro users get per-meeting-type routing via slack_webhooks array;
+ * all users fall back to the legacy single slack_webhook_url.
+ */
+function resolveSlackWebhook(user: User, meetingType: string): string | null {
+  const channels = user.slack_webhooks
+  if (channels?.length) {
+    // 1. Exact type match
+    const match = channels.find((ch) => ch.meetingTypes.includes(meetingType))
+    if (match) return match.webhookUrl
+    // 2. Catch-all channel (no meeting types assigned = handles everything else)
+    const catchAll = channels.find((ch) => ch.meetingTypes.length === 0)
+    if (catchAll) return catchAll.webhookUrl
+  }
+  // 3. Legacy single webhook
+  return user.slack_webhook_url ?? null
+}
+
 export async function processMeeting(
   meeting: MeetingRow,
   user: User,
@@ -287,10 +306,12 @@ export async function processMeeting(
     key_decisions: insights.key_decisions,
   }
 
+  const slackWebhook = resolveSlackWebhook(user, meeting.meeting_type ?? 'general')
+
   await Promise.allSettled([
-    // Slack digest
-    user.slack_webhook_url
-      ? postMeetingSummaryToSlack(user.slack_webhook_url, meeting, integrationPayload)
+    // Slack digest — routes to the channel that matches the meeting type
+    slackWebhook
+      ? postMeetingSummaryToSlack(slackWebhook, meeting, integrationPayload)
           .catch((err) => console.error('Slack post failed:', err))
       : Promise.resolve(),
 

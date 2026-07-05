@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react'
 import { getIntegrations, saveIntegrations, getMeetingStats, getBilling, createCheckout, openBillingPortal } from '../api'
-import type { Integrations, MeetingStats, BillingInfo } from '../types'
+import type { Integrations, MeetingStats, BillingInfo, SlackChannel } from '../types'
+
+const MEETING_TYPES = [
+  { value: 'sales_call', label: 'Sales / Discovery' },
+  { value: 'client_review', label: 'Client Review' },
+  { value: 'interview', label: 'Interview' },
+  { value: 'team_sync', label: 'Team Sync' },
+  { value: 'kickoff', label: 'Kickoff' },
+  { value: 'general', label: 'General' },
+]
+
+type EditForm = { label: string; meetingTypes: string[]; webhookUrl: string }
+const BLANK_FORM: EditForm = { label: '', meetingTypes: [], webhookUrl: '' }
 
 type Props = { email: string; token: string; onDisconnect: () => void }
 
@@ -10,17 +22,22 @@ export default function Settings({ email, token, onDisconnect }: Props) {
   const [stats, setStats] = useState<MeetingStats | null>(null)
   const [billing, setBilling] = useState<BillingInfo | null>(null)
   const [slackUrl, setSlackUrl] = useState('')
+  const [slackChannels, setSlackChannels] = useState<SlackChannel[]>([])
+  const [editingIdx, setEditingIdx] = useState<number | null>(null) // -1 = new
+  const [editForm, setEditForm] = useState<EditForm>(BLANK_FORM)
   const [hubspotKey, setHubspotKey] = useState('')
   const [saving, setSaving] = useState<'slack' | 'hubspot' | null>(null)
   const [saveMsg, setSaveMsg] = useState<{ key: string; msg: string; ok: boolean } | null>(null)
   const [upgrading, setUpgrading] = useState(false)
 
   const toggle = (id: string) => setExpanded(prev => prev === id ? null : id)
+  const isPro = billing?.plan === 'pro' || billing?.plan === 'team'
 
   useEffect(() => {
     getIntegrations(token).then((d) => {
       setIntegrations(d)
       setSlackUrl(d.slack_webhook_url ?? '')
+      setSlackChannels(d.slack_webhooks ?? [])
     }).catch(() => {})
     getMeetingStats(token).then(setStats).catch(() => {})
     getBilling(token).then(setBilling).catch(() => {})
@@ -51,6 +68,46 @@ export default function Settings({ email, token, onDisconnect }: Props) {
     } catch {
       setSaveMsg({ key: 'slack', msg: 'Failed to save', ok: false })
     } finally { setSaving(null) }
+  }
+
+  async function handleSaveChannels(channels: SlackChannel[]) {
+    setSaving('slack'); setSaveMsg(null)
+    try {
+      await saveIntegrations(token, { slack_webhooks: channels, slack_webhook_url: null })
+      setSlackChannels(channels)
+      setEditingIdx(null)
+      setEditForm(BLANK_FORM)
+      setSaveMsg({ key: 'slack', msg: 'Saved!', ok: true })
+    } catch {
+      setSaveMsg({ key: 'slack', msg: 'Failed to save', ok: false })
+    } finally { setSaving(null) }
+  }
+
+  function commitEditForm() {
+    if (!editForm.webhookUrl.trim()) return
+    const ch: SlackChannel = {
+      label: editForm.label.trim() || (editForm.meetingTypes.length === 0 ? 'Default' : editForm.meetingTypes.map(t => MEETING_TYPES.find(m => m.value === t)?.label ?? t).join(' / ')),
+      meetingTypes: editForm.meetingTypes,
+      webhookUrl: editForm.webhookUrl.trim(),
+    }
+    const updated = editingIdx === -1
+      ? [...slackChannels, ch]
+      : slackChannels.map((c, i) => i === editingIdx ? ch : c)
+    handleSaveChannels(updated)
+  }
+
+  function removeChannel(idx: number) {
+    const updated = slackChannels.filter((_, i) => i !== idx)
+    handleSaveChannels(updated)
+  }
+
+  function toggleEditType(value: string) {
+    setEditForm(f => ({
+      ...f,
+      meetingTypes: f.meetingTypes.includes(value)
+        ? f.meetingTypes.filter(t => t !== value)
+        : [...f.meetingTypes, value],
+    }))
   }
 
   async function handleSaveHubspot() {
@@ -108,17 +165,17 @@ export default function Settings({ email, token, onDisconnect }: Props) {
                 onClick={() => handleUpgrade('pro')}
                 disabled={upgrading}
               >
-                Upgrade to Pro · $19/mo
+                Upgrade to Pro · $5/mo
               </button>
               <button
                 style={{ ...s.upgradeBtn, background: '#0f0f0f' }}
                 onClick={() => handleUpgrade('team')}
                 disabled={upgrading}
               >
-                Team · $49/mo · 5 seats
+                Team · $15/mo · 5 seats
               </button>
             </div>
-            <p style={s.planFeatureNote}>Pro & Team: unlimited meetings, Slack digest, HubSpot CRM push</p>
+            <p style={s.planFeatureNote}>Pro: unlimited meetings + Slack routing · Team: adds HubSpot CRM</p>
           </div>
         ) : billing ? (
           <div style={s.planCard}>
@@ -173,36 +230,115 @@ export default function Settings({ email, token, onDisconnect }: Props) {
 
           {expanded === 'slack' && (
             <div style={s.integBox}>
-              <p style={s.integHelp}>
-                Create an <strong>Incoming Webhook</strong> in your Slack workspace
-                (api.slack.com → Your Apps → Incoming Webhooks) and paste the URL below.
-              </p>
-              <input
-                style={s.integInput}
-                placeholder="https://hooks.slack.com/services/…"
-                value={slackUrl}
-                onChange={(e) => setSlackUrl(e.target.value)}
-              />
-              {saveMsg?.key === 'slack' && (
-                <p style={{ ...s.saveMsg, color: saveMsg.ok ? '#16a34a' : '#dc2626' }}>{saveMsg.msg}</p>
+              {/* Free users: single global webhook */}
+              {!isPro && (
+                <>
+                  <p style={s.integHelp}>
+                    Create an <strong>Incoming Webhook</strong> at api.slack.com → Your Apps → Incoming Webhooks and paste the URL below.
+                  </p>
+                  <input
+                    style={s.integInput}
+                    placeholder="https://hooks.slack.com/services/…"
+                    value={slackUrl}
+                    onChange={(e) => setSlackUrl(e.target.value)}
+                  />
+                  {saveMsg?.key === 'slack' && (
+                    <p style={{ ...s.saveMsg, color: saveMsg.ok ? '#16a34a' : '#dc2626' }}>{saveMsg.msg}</p>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button style={{ ...s.integSaveBtn, opacity: saving === 'slack' ? 0.6 : 1 }} onClick={handleSaveSlack} disabled={saving === 'slack'}>
+                      {saving === 'slack' ? 'Saving…' : 'Save'}
+                    </button>
+                    {integrations?.slack_webhook_url && (
+                      <button style={s.integRemoveBtn} onClick={() => { setSlackUrl(''); handleSaveSlack() }}>Remove</button>
+                    )}
+                  </div>
+                  <p style={{ ...s.integHelp, marginTop: 10, color: '#6b7280' }}>
+                    Upgrade to Pro to route different meeting types to different Slack channels.
+                  </p>
+                </>
               )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button
-                  style={{ ...s.integSaveBtn, opacity: saving === 'slack' ? 0.6 : 1 }}
-                  onClick={handleSaveSlack}
-                  disabled={saving === 'slack'}
-                >
-                  {saving === 'slack' ? 'Saving…' : 'Save'}
-                </button>
-                {integrations?.slack_webhook_url && (
-                  <button
-                    style={s.integRemoveBtn}
-                    onClick={() => { setSlackUrl(''); handleSaveSlack() }}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
+
+              {/* Pro/Team users: per-meeting-type channel routing */}
+              {isPro && (
+                <>
+                  <p style={s.integHelp}>
+                    Route summaries to different channels based on meeting type. Channels without types assigned act as the default catch-all.
+                  </p>
+
+                  {/* Channel list */}
+                  {slackChannels.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                      {slackChannels.map((ch, idx) => (
+                        <div key={idx} style={s.channelRow}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={s.channelLabel}>{ch.label || 'Unnamed'}</div>
+                            <div style={s.channelMeta}>
+                              {ch.meetingTypes.length === 0
+                                ? 'Default (all types)'
+                                : ch.meetingTypes.map(t => MEETING_TYPES.find(m => m.value === t)?.label ?? t).join(', ')}
+                            </div>
+                          </div>
+                          <button style={s.channelEditBtn} onClick={() => { setEditingIdx(idx); setEditForm({ label: ch.label, meetingTypes: [...ch.meetingTypes], webhookUrl: ch.webhookUrl }) }}>Edit</button>
+                          <button style={s.channelRemoveBtn} onClick={() => removeChannel(idx)}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add channel button */}
+                  {editingIdx === null && slackChannels.length < 5 && (
+                    <button style={s.addChannelBtn} onClick={() => { setEditingIdx(-1); setEditForm(BLANK_FORM) }}>
+                      + Add channel
+                    </button>
+                  )}
+
+                  {/* Inline edit/add form */}
+                  {editingIdx !== null && (
+                    <div style={s.editForm}>
+                      <input
+                        style={{ ...s.integInput, marginBottom: 8 }}
+                        placeholder="Channel label (e.g. Recruiting)"
+                        value={editForm.label}
+                        onChange={(e) => setEditForm(f => ({ ...f, label: e.target.value }))}
+                      />
+                      <p style={{ ...s.integHelp, marginBottom: 6 }}>Route these meeting types here (leave all unchecked for default):</p>
+                      <div style={s.typeGrid}>
+                        {MEETING_TYPES.map(mt => (
+                          <label key={mt.value} style={s.typeCheck}>
+                            <input
+                              type="checkbox"
+                              checked={editForm.meetingTypes.includes(mt.value)}
+                              onChange={() => toggleEditType(mt.value)}
+                              style={{ marginRight: 5, accentColor: '#1a73e8' }}
+                            />
+                            {mt.label}
+                          </label>
+                        ))}
+                      </div>
+                      <input
+                        style={{ ...s.integInput, marginTop: 8 }}
+                        placeholder="https://hooks.slack.com/services/…"
+                        value={editForm.webhookUrl}
+                        onChange={(e) => setEditForm(f => ({ ...f, webhookUrl: e.target.value }))}
+                      />
+                      {saveMsg?.key === 'slack' && (
+                        <p style={{ ...s.saveMsg, color: saveMsg.ok ? '#16a34a' : '#dc2626' }}>{saveMsg.msg}</p>
+                      )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button style={{ ...s.integSaveBtn, opacity: (saving === 'slack' || !editForm.webhookUrl.trim()) ? 0.6 : 1 }} onClick={commitEditForm} disabled={saving === 'slack' || !editForm.webhookUrl.trim()}>
+                          {saving === 'slack' ? 'Saving…' : 'Save channel'}
+                        </button>
+                        <button style={s.integRemoveBtn} onClick={() => { setEditingIdx(null); setEditForm(BLANK_FORM) }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {slackChannels.length === 0 && editingIdx === null && (
+                    <p style={{ ...s.integHelp, color: '#9ca3af' }}>No channels configured yet. Add one above.</p>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -615,5 +751,46 @@ const s: Record<string, React.CSSProperties> = {
   version: {
     fontFamily: "'DM Mono', monospace", fontSize: 11, color: '#9ca3af',
     textAlign: 'center', marginTop: 24, paddingBottom: 4,
+  },
+
+  // Slack channel management
+  channelRow: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    background: '#fff', border: '1px solid #e8f0fe', borderRadius: 8, padding: '9px 11px',
+  },
+  channelLabel: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 13,
+    color: '#0f0f0f', letterSpacing: '-0.2px',
+  },
+  channelMeta: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11.5, color: '#6b7280',
+    letterSpacing: '-0.1px', marginTop: 1,
+  },
+  channelEditBtn: {
+    padding: '4px 10px', background: '#f3f4f6', color: '#374151',
+    border: 'none', borderRadius: 6, fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 12, cursor: 'pointer', flexShrink: 0,
+  },
+  channelRemoveBtn: {
+    padding: '4px 8px', background: 'none', color: '#9ca3af',
+    border: '1px solid #e0e0e0', borderRadius: 6, fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 14, cursor: 'pointer', flexShrink: 0, lineHeight: 1,
+  },
+  addChannelBtn: {
+    padding: '8px 14px', background: '#f8faff', color: '#1a73e8',
+    border: '1.5px dashed #93c5fd', borderRadius: 8, fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 13, fontWeight: 600, cursor: 'pointer', width: '100%', letterSpacing: '-0.2px',
+  },
+  editForm: {
+    background: '#fff', border: '1px solid #e8f0fe', borderRadius: 10,
+    padding: '12px', display: 'flex', flexDirection: 'column' as const,
+  },
+  typeGrid: {
+    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px',
+  },
+  typeCheck: {
+    display: 'flex', alignItems: 'center',
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12.5, color: '#374151',
+    cursor: 'pointer', letterSpacing: '-0.1px',
   },
 }

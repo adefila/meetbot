@@ -1,4 +1,4 @@
-import type { Meeting, SearchResult, Integrations, MeetingStats, BillingInfo } from './types'
+import type { Meeting, SearchResult, Integrations, MeetingStats, BillingInfo, SlackChannel } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 
@@ -111,7 +111,7 @@ export async function getIntegrations(token: string): Promise<Integrations> {
 
 export async function saveIntegrations(
   token: string,
-  data: { slack_webhook_url?: string | null; hubspot_api_key?: string | null }
+  data: { slack_webhook_url?: string | null; slack_webhooks?: SlackChannel[] | null; hubspot_api_key?: string | null }
 ): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>('/api/integrations', token, {
     method: 'PUT',
