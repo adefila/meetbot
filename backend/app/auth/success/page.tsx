@@ -3,8 +3,43 @@
 import { Suspense, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-function TokenExtractor() {
+const PLAN_DETAILS = {
+  pro: {
+    name: 'Pro',
+    price: '$5/mo',
+    color: '#1a73e8',
+    bg: '#eff6ff',
+    badge: '#dbeafe',
+    features: [
+      'Unlimited meetings recorded',
+      'AI summary, action items & follow-up questions',
+      'Slack digest — route summaries per meeting type',
+      'Meeting scorecards & stats dashboard',
+      'Notes emailed to you + all attendees',
+    ],
+  },
+  team: {
+    name: 'Team',
+    price: '$15/mo',
+    color: '#7c3aed',
+    bg: '#f5f3ff',
+    badge: '#ede9fe',
+    features: [
+      'Everything in Pro',
+      'HubSpot CRM — auto-log notes to contacts',
+      'Up to 5 team seats',
+      'Per-meeting-type Slack channel routing',
+      'Priority support',
+    ],
+  },
+}
+
+function SuccessContent() {
   const params = useSearchParams()
+  const upgraded = params.get('upgraded') === '1'
+  const planKey = (params.get('plan') ?? '') as keyof typeof PLAN_DETAILS
+  const plan = PLAN_DETAILS[planKey]
+
   useEffect(() => {
     const token = params.get('token')
     if (!token) return
@@ -15,25 +50,62 @@ function TokenExtractor() {
       if (extensionId) w.chrome.runtime.sendMessage(extensionId, { type: 'MEETBOT_AUTH_TOKEN', token })
     }
   }, [params])
-  return null
+
+  if (upgraded && plan) {
+    return <UpgradeSuccess plan={plan} />
+  }
+
+  return <AuthSuccess />
 }
 
-export default function AuthSuccess() {
+function UpgradeSuccess({ plan }: { plan: typeof PLAN_DETAILS['pro'] }) {
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', height: '100vh', background: '#fff',
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-      WebkitFontSmoothing: 'antialiased',
-    }}>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <div style={page}>
+      <Fonts />
 
-      <Suspense fallback={null}>
-        <TokenExtractor />
-      </Suspense>
+      {/* Checkmark badge */}
+      <div style={{ ...badge, background: plan.bg, marginBottom: 28 }}>
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <circle cx="16" cy="16" r="16" fill={plan.color} />
+          <path d="M9 16.5l4.5 4.5L23 11" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
 
-      {/* Illustration */}
+      {/* Heading */}
+      <div style={{ ...heading, marginBottom: 6 }}>
+        You&apos;re on {plan.name}
+      </div>
+      <div style={{ ...subheading, marginBottom: 32 }}>
+        {plan.price} · Your plan is active
+      </div>
+
+      {/* Feature list */}
+      <div style={{ ...card, width: 320, marginBottom: 32 }}>
+        <div style={cardHeader}>What&apos;s included</div>
+        {plan.features.map((f, i) => (
+          <div key={i} style={{ ...featureRow, borderBottom: i < plan.features.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+            <div style={{ ...dot, background: plan.color }} />
+            <span style={featureText}>{f}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* CTA */}
+      <p style={hint}>
+        Click the MeetBot icon in your Chrome toolbar to get started.<br />
+        Your plan will refresh automatically.
+      </p>
+
+      <p style={close}>You can close this tab</p>
+    </div>
+  )
+}
+
+function AuthSuccess() {
+  return (
+    <div style={page}>
+      <Fonts />
+
       <svg width="160" height="160" viewBox="0 0 160 160" fill="none" style={{ marginBottom: 32 }}>
         <circle cx="80" cy="80" r="72" fill="#f0f7ff" />
         <rect x="38" y="50" width="56" height="52" rx="6" fill="#fff" stroke="#e0ecff" strokeWidth="1.5" />
@@ -62,83 +134,102 @@ export default function AuthSuccess() {
         <circle cx="90" cy="75" r="1.5" fill="#bfdbfe" />
       </svg>
 
-      <div style={{
-        fontFamily: "'Inter', sans-serif",
-        fontWeight: 700, fontSize: 24, letterSpacing: '-0.6px',
-        color: '#0f0f0f', marginBottom: 10,
-      }}>
-        You&apos;re connected
-      </div>
-
-      <p style={{
-        fontFamily: "'Inter', sans-serif", fontSize: 15, color: '#4b5563',
-        letterSpacing: '-0.2px', lineHeight: 1.65, textAlign: 'center',
-        maxWidth: 290, marginBottom: 28,
-      }}>
+      <div style={{ ...heading, marginBottom: 10 }}>You&apos;re connected</div>
+      <p style={{ ...subheading, maxWidth: 290, marginBottom: 28 }}>
         MeetBot will now automatically join your scheduled meetings and send you notes.
       </p>
 
-      <div style={{
-        display: 'flex', flexDirection: 'column', gap: 0,
-        background: '#f8faff', border: '1px solid #e0ecff',
-        borderRadius: 14, overflow: 'hidden', width: 300,
-      }}>
+      <div style={{ ...card, width: 300, marginBottom: 0 }}>
         {[
-          {
-            icon: (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="17" rx="2" /><line x1="3" y1="9" x2="21" y2="9" />
-                <line x1="8" y1="2" x2="8" y2="6" /><line x1="16" y1="2" x2="16" y2="6" />
-              </svg>
-            ),
-            text: 'Calendar syncing every 5 min',
-          },
-          {
-            icon: (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="9" width="18" height="12" rx="2" />
-                <circle cx="9" cy="15" r="1.5" fill="#1a73e8" stroke="none" />
-                <circle cx="15" cy="15" r="1.5" fill="#1a73e8" stroke="none" />
-                <path d="M12 3v6M9 3h6" />
-              </svg>
-            ),
-            text: 'Bot will join 1 min before start',
-          },
-          {
-            icon: (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                <polyline points="22,6 12,13 2,6" />
-              </svg>
-            ),
-            text: 'Notes emailed after each call',
-          },
-        ].map(({ icon, text }, i, arr) => (
-          <div key={text} style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            padding: '13px 18px',
-            borderBottom: i < arr.length - 1 ? '1px solid #e8f0fe' : 'none',
-          }}>
-            <div style={{
-              width: 30, height: 30, borderRadius: 8, background: '#eff6ff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              {icon}
-            </div>
-            <span style={{
-              fontFamily: "'Inter', sans-serif", fontSize: 13.5, color: '#1f2937',
-              letterSpacing: '-0.15px', lineHeight: 1.4,
-            }}>{text}</span>
+          { text: 'Calendar syncing every 5 min' },
+          { text: 'Bot will join 1 min before start' },
+          { text: 'Notes emailed after each call' },
+        ].map(({ text }, i, arr) => (
+          <div key={text} style={{ ...featureRow, borderBottom: i < arr.length - 1 ? '1px solid #e8f0fe' : 'none' }}>
+            <div style={{ ...dot, background: '#1a73e8' }} />
+            <span style={featureText}>{text}</span>
           </div>
         ))}
       </div>
 
-      <p style={{
-        fontFamily: "'DM Mono', monospace", fontSize: 11, color: '#ccc',
-        letterSpacing: '-0.1px', marginTop: 28,
-      }}>
-        You can close this tab
-      </p>
+      <p style={close}>You can close this tab</p>
     </div>
   )
+}
+
+function Fonts() {
+  return (
+    <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    </>
+  )
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <SuccessContent />
+    </Suspense>
+  )
+}
+
+// ── Styles ──────────────────────────────────────────────────────────────────
+
+const page: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center',
+  justifyContent: 'center', minHeight: '100vh', background: '#fff',
+  fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+  WebkitFontSmoothing: 'antialiased', padding: '40px 20px',
+}
+
+const badge: React.CSSProperties = {
+  width: 72, height: 72, borderRadius: '50%',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+}
+
+const heading: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 26,
+  letterSpacing: '-0.7px', color: '#0f0f0f',
+}
+
+const subheading: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif", fontSize: 15, color: '#6b7280',
+  letterSpacing: '-0.2px', lineHeight: 1.6, textAlign: 'center',
+}
+
+const card: React.CSSProperties = {
+  background: '#f8faff', border: '1px solid #e0ecff',
+  borderRadius: 14, overflow: 'hidden',
+}
+
+const cardHeader: React.CSSProperties = {
+  fontFamily: "'DM Mono', monospace", fontSize: 11, fontWeight: 500,
+  letterSpacing: '0.5px', color: '#6b7280', textTransform: 'uppercase',
+  padding: '12px 18px 10px', borderBottom: '1px solid #e8f0fe',
+}
+
+const featureRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 12,
+  padding: '12px 18px',
+}
+
+const dot: React.CSSProperties = {
+  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+}
+
+const featureText: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif", fontSize: 13.5, color: '#1f2937',
+  letterSpacing: '-0.15px', lineHeight: 1.4,
+}
+
+const hint: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif", fontSize: 13.5, color: '#6b7280',
+  letterSpacing: '-0.2px', lineHeight: 1.65, textAlign: 'center',
+  maxWidth: 290,
+}
+
+const close: React.CSSProperties = {
+  fontFamily: "'DM Mono', monospace", fontSize: 11, color: '#d1d5db',
+  letterSpacing: '-0.1px', marginTop: 24,
 }

@@ -56,7 +56,7 @@ export async function createLSCheckout(
       custom: { user_id: userId, plan },
     },
     productOptions: {
-      redirectUrl: `${appUrl}/auth/success?upgraded=1`,
+      redirectUrl: `${appUrl}/auth/success?upgraded=1&plan=${plan}`,
       receiptButtonText: 'Back to MeetBot',
     },
   })

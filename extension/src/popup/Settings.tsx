@@ -34,13 +34,23 @@ export default function Settings({ email, token, onDisconnect }: Props) {
   const isPro = billing?.plan === 'pro' || billing?.plan === 'team'
 
   useEffect(() => {
-    getIntegrations(token).then((d) => {
-      setIntegrations(d)
-      setSlackUrl(d.slack_webhook_url ?? '')
-      setSlackChannels(d.slack_webhooks ?? [])
-    }).catch(() => {})
-    getMeetingStats(token).then(setStats).catch(() => {})
-    getBilling(token).then(setBilling).catch(() => {})
+    function loadAll() {
+      getIntegrations(token).then((d) => {
+        setIntegrations(d)
+        setSlackUrl(d.slack_webhook_url ?? '')
+        setSlackChannels(d.slack_webhooks ?? [])
+      }).catch(() => {})
+      getMeetingStats(token).then(setStats).catch(() => {})
+      getBilling(token).then(setBilling).catch(() => {})
+    }
+
+    loadAll()
+
+    // Re-fetch billing when the popup regains focus — handles the case where
+    // the user completed a checkout in another tab and comes back.
+    const onVisible = () => { if (document.visibilityState === 'visible') getBilling(token).then(setBilling).catch(() => {}) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [token])
 
   async function handleUpgrade(plan: 'pro' | 'team') {
