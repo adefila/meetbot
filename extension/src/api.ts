@@ -138,8 +138,15 @@ export async function createCheckout(token: string, plan: 'pro' | 'team'): Promi
   })
 }
 
-export async function openBillingPortal(token: string): Promise<{ url: string; fallback?: boolean }> {
-  return apiFetch<{ url: string; fallback?: boolean }>('/api/billing/portal', token, {
+export async function openBillingPortal(token: string): Promise<{ updatePaymentUrl: string | null; customerPortalUrl: string | null }> {
+  return apiFetch<{ updatePaymentUrl: string | null; customerPortalUrl: string | null }>('/api/billing/portal', token, {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
+export async function cancelSubscription(token: string): Promise<{ ok: boolean; endsAt: string | null }> {
+  return apiFetch<{ ok: boolean; endsAt: string | null }>('/api/billing/cancel', token, {
     method: 'POST',
     body: '{}',
   })

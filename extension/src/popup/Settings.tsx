@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getIntegrations, saveIntegrations, getMeetingStats, getBilling, syncBilling, createCheckout, openBillingPortal } from '../api'
+import { getIntegrations, saveIntegrations, getMeetingStats, getBilling, syncBilling, createCheckout, openBillingPortal, cancelSubscription } from '../api'
 import type { Integrations, MeetingStats, BillingInfo, SlackChannel } from '../types'
 
 const MEETING_TYPES = [
@@ -30,8 +30,11 @@ export default function Settings({ email, token, onDisconnect }: Props) {
   const [saveMsg, setSaveMsg] = useState<{ key: string; msg: string; ok: boolean } | null>(null)
   const [upgrading, setUpgrading] = useState(false)
   const [syncingBilling, setSyncingBilling] = useState(true)
-  const [portalError, setPortalError] = useState<string | null>(null)
   const [openingPortal, setOpeningPortal] = useState(false)
+  const [portalError, setPortalError] = useState<string | null>(null)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelledUntil, setCancelledUntil] = useState<string | null>(null)
 
   const toggle = (id: string) => setExpanded(prev => prev === id ? null : id)
   const isPro = billing?.plan === 'pro' || billing?.plan === 'team'
@@ -66,19 +69,38 @@ export default function Settings({ email, token, onDisconnect }: Props) {
     finally { setUpgrading(false) }
   }
 
-  async function handleManageBilling() {
+  async function handleUpdatePayment() {
     setOpeningPortal(true)
     setPortalError(null)
     try {
-      const result = await openBillingPortal(token) as { url: string; fallback?: boolean }
-      chrome.tabs.create({ url: result.url })
-      if (result.fallback) {
-        setPortalError('Direct link unavailable — opening your Lemon Squeezy account instead.')
+      const { updatePaymentUrl } = await openBillingPortal(token)
+      if (updatePaymentUrl) {
+        chrome.tabs.create({ url: updatePaymentUrl })
+      } else {
+        setPortalError('Payment update link unavailable. Check your receipt email from Lemon Squeezy.')
       }
     } catch {
-      setPortalError('Could not open billing portal. Check your receipt email to manage your subscription.')
+      setPortalError('Could not fetch payment update link.')
     } finally {
       setOpeningPortal(false)
+    }
+  }
+
+  async function handleCancelSubscription() {
+    setCancelling(true)
+    setPortalError(null)
+    try {
+      const { ok, endsAt } = await cancelSubscription(token)
+      if (ok) {
+        setShowCancelConfirm(false)
+        setCancelledUntil(endsAt)
+        // Refresh billing state after cancel
+        getBilling(token).then(setBilling).catch(() => {})
+      }
+    } catch {
+      setPortalError('Cancellation failed. Try again or contact support.')
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -216,13 +238,54 @@ export default function Settings({ email, token, onDisconnect }: Props) {
               </div>
               <span style={{ ...s.pill, color: '#14532d', background: '#f0fdf4' }}>Active</span>
             </div>
-            <button
-              style={{ ...s.manageBtn, opacity: openingPortal ? 0.6 : 1 }}
-              onClick={handleManageBilling}
-              disabled={openingPortal}
-            >
-              {openingPortal ? 'Opening…' : 'Manage subscription →'}
-            </button>
+
+            {/* Cancelled confirmation */}
+            {cancelledUntil && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12.5, color: '#92400e', letterSpacing: '-0.2px', lineHeight: 1.5, margin: 0 }}>
+                  Subscription cancelled. You have full access until{' '}
+                  <strong>{new Date(cancelledUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong>.
+                </p>
+              </div>
+            )}
+
+            {/* Cancel confirmation step */}
+            {showCancelConfirm ? (
+              <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 8, padding: '12px' }}>
+                <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, color: '#7f1d1d', letterSpacing: '-0.2px', lineHeight: 1.5, marginBottom: 10 }}>
+                  Cancel your {billing.planName} plan? You'll keep access until the end of your current billing period.
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    style={{ ...s.cancelConfirmBtn, opacity: cancelling ? 0.6 : 1 }}
+                    onClick={handleCancelSubscription}
+                    disabled={cancelling}
+                  >
+                    {cancelling ? 'Cancelling…' : 'Yes, cancel plan'}
+                  </button>
+                  <button style={s.manageBtn} onClick={() => setShowCancelConfirm(false)}>
+                    Keep plan
+                  </button>
+                </div>
+              </div>
+            ) : !cancelledUntil && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button
+                  style={{ ...s.manageBtn, opacity: openingPortal ? 0.6 : 1, flex: 1 }}
+                  onClick={handleUpdatePayment}
+                  disabled={openingPortal}
+                >
+                  {openingPortal ? 'Opening…' : 'Update payment →'}
+                </button>
+                <button
+                  style={{ ...s.manageBtn, color: '#dc2626', borderColor: '#fecaca', flex: 1 }}
+                  onClick={() => setShowCancelConfirm(true)}
+                >
+                  Cancel plan
+                </button>
+              </div>
+            )}
+
             {portalError && (
               <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, color: '#b45309', marginTop: 8, letterSpacing: '-0.2px', lineHeight: 1.5 }}>
                 {portalError}
@@ -660,9 +723,14 @@ const s: Record<string, React.CSSProperties> = {
     textAlign: 'center' as const,
   },
   manageBtn: {
-    marginTop: 10, padding: '8px 14px', background: '#fff', color: '#374151',
+    marginTop: 0, padding: '8px 12px', background: '#fff', color: '#374151',
     border: '1px solid #e0e0e0', borderRadius: 8, fontFamily: "'Plus Jakarta Sans', sans-serif",
-    fontSize: 13, cursor: 'pointer', letterSpacing: '-0.2px', width: '100%',
+    fontSize: 12.5, cursor: 'pointer', letterSpacing: '-0.2px',
+  },
+  cancelConfirmBtn: {
+    padding: '8px 12px', background: '#dc2626', color: '#fff',
+    border: 'none', borderRadius: 8, fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 12.5, fontWeight: 600, cursor: 'pointer', letterSpacing: '-0.2px',
   },
   planFeatureNote: {
     fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11.5, color: '#9ca3af',

@@ -48,8 +48,12 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         }).eq('id', user.id)
         // If the portal URL is already in the response, return it immediately
-        const portalUrl = sub.attributes.urls?.customer_portal
-        if (portalUrl) return NextResponse.json({ url: portalUrl })
+        if (sub.attributes.urls?.update_payment_method || sub.attributes.urls?.customer_portal) {
+          return NextResponse.json({
+            updatePaymentUrl: sub.attributes.urls?.update_payment_method ?? null,
+            customerPortalUrl: sub.attributes.urls?.customer_portal ?? null,
+          })
+        }
       }
     } catch (err) {
       console.error('[portal] email lookup failed:', err)
@@ -57,8 +61,8 @@ export async function POST(request: NextRequest) {
   }
 
   if (!subscriptionId) {
-    // Last resort: direct to LS customer account page
-    return NextResponse.json({ url: 'https://app.lemonsqueezy.com/billing', fallback: true })
+    // No subscription found anywhere
+    return NextResponse.json({ updatePaymentUrl: null, customerPortalUrl: null })
   }
 
   // Fetch the specific subscription to get the customer portal URL
@@ -76,13 +80,14 @@ export async function POST(request: NextRequest) {
     const data = await res.json() as {
       data: { attributes: { urls: { customer_portal?: string; update_payment_method?: string } } }
     }
-    const url = data.data.attributes.urls?.customer_portal
-      ?? data.data.attributes.urls?.update_payment_method
-    if (!url) throw new Error('No portal URL in response')
-    return NextResponse.json({ url })
+    const attrs = data.data.attributes
+    return NextResponse.json({
+      updatePaymentUrl: attrs.urls?.update_payment_method ?? null,
+      customerPortalUrl: attrs.urls?.customer_portal ?? null,
+    })
   } catch (err) {
     console.error('[portal] fetch subscription failed:', err)
-    // Fallback to generic LS billing page rather than erroring
-    return NextResponse.json({ url: 'https://app.lemonsqueezy.com/billing', fallback: true })
+    // Return empty URLs — extension will handle gracefully
+    return NextResponse.json({ updatePaymentUrl: null, customerPortalUrl: null })
   }
 }
