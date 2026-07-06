@@ -39,22 +39,27 @@ function SuccessContent() {
   const upgraded = params.get('upgraded') === '1'
   const planKey = (params.get('plan') ?? '') as keyof typeof PLAN_DETAILS
   const plan = PLAN_DETAILS[planKey]
+  const hasToken = !!params.get('token')
 
   useEffect(() => {
     const token = params.get('token')
     if (!token) return
+    // Relay token via postMessage (extension content script listens)
     window.postMessage({ type: 'MEETBOT_AUTH_TOKEN', token }, '*')
+    // Also try direct extension message if extension ID is configured
     const w = window as Window & { chrome?: { runtime?: { sendMessage: (id: string, msg: unknown) => void } } }
     if (w.chrome?.runtime) {
       const extensionId = process.env.NEXT_PUBLIC_EXTENSION_ID
       if (extensionId) w.chrome.runtime.sendMessage(extensionId, { type: 'MEETBOT_AUTH_TOKEN', token })
     }
+    // Auto-close after 2.5s — background worker will have already closed the tab
+    // via tabs.onUpdated, but this is a fallback if the service worker was sleeping
+    const t = setTimeout(() => window.close(), 2500)
+    return () => clearTimeout(t)
   }, [params])
 
-  if (upgraded && plan) {
-    return <UpgradeSuccess plan={plan} />
-  }
-
+  if (upgraded && plan) return <UpgradeSuccess plan={plan} />
+  if (hasToken) return <LoginSuccess />
   return <AuthSuccess />
 }
 
@@ -97,6 +102,24 @@ function UpgradeSuccess({ plan }: { plan: typeof PLAN_DETAILS['pro'] }) {
       </p>
 
       <p style={close}>You can close this tab</p>
+    </div>
+  )
+}
+
+function LoginSuccess() {
+  return (
+    <div style={page}>
+      <Fonts />
+      <div style={{ ...badge, background: '#f0fdf4', marginBottom: 24 }}>
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <circle cx="16" cy="16" r="16" fill="#16a34a" />
+          <path d="M9 16.5l4.5 4.5L23 11" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <div style={{ ...heading, marginBottom: 8 }}>Signed in successfully</div>
+      <p style={{ ...subheading, marginBottom: 0 }}>
+        This tab will close automatically.<br />Click the MeetBot icon in your toolbar to continue.
+      </p>
     </div>
   )
 }

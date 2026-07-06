@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { Meeting, AuthState, SearchResult } from '../types'
-import { getMeetings, getMeeting, joinByUrl, searchMeetings, checkHealth, createCheckout, ApiError } from '../api'
+import type { Meeting, AuthState, SearchResult, BillingInfo } from '../types'
+import { getMeetings, getMeeting, joinByUrl, searchMeetings, checkHealth, createCheckout, getBilling, syncBilling, ApiError } from '../api'
 import MeetingCard from './MeetingCard'
 import NoteDetail from './NoteDetail'
 import Settings from './Settings'
@@ -25,6 +25,7 @@ export default function Popup() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ title: string; detail: string } | null>(null)
   const [showPast, setShowPast] = useState(false)
+  const [billing, setBilling] = useState<BillingInfo | null>(null)
 
   // Search state
   const [searchQ, setSearchQ] = useState('')
@@ -47,6 +48,11 @@ export default function Popup() {
         const decoded = JSON.parse(atob(token)) as { email: string }
         setAuth({ status: 'authenticated', token, email: decoded.email })
         loadMeetings(token)
+        // Sync billing on every popup open — catches completed checkouts
+        syncBilling(token)
+          .then(() => getBilling(token))
+          .then(setBilling)
+          .catch(() => getBilling(token).then(setBilling).catch(() => {}))
       } catch {
         setAuth({ status: 'unauthenticated' }); setLoading(false)
       }
@@ -147,18 +153,31 @@ export default function Popup() {
   if (auth.status === 'unauthenticated') {
     return (
       <div style={s.root}>
-        <div style={s.header}>
-          <Logo />
-          <span style={s.wordmark}>MeetBot</span>
-        </div>
-        <div style={s.loginBox}>
-          <div style={s.logoLarge}><Logo size={40} /></div>
-          <h2 style={s.loginTitle}>Connect your Google account</h2>
-          <p style={s.loginSub}>MeetBot joins your calls automatically and turns them into precise notes.</p>
-          <button style={s.loginBtn} onClick={handleLogin}>
-            <GoogleIcon /> Sign in with Google
-          </button>
-          <p style={s.loginDisclaimer}>MeetBot will read your calendar and send emails on your behalf</p>
+        <div style={s.loginScreen}>
+          <div style={s.loginHero}>
+            <div style={s.loginLogoWrap}><Logo size={44} /></div>
+            <h1 style={s.loginTitle}>MeetBot</h1>
+            <p style={s.loginTagline}>AI notes for every meeting — automatic.</p>
+          </div>
+          <div style={s.loginFeatures}>
+            {[
+              { icon: '📅', text: 'Auto-joins from Google Calendar' },
+              { icon: '🎙️', text: 'Records + transcribes with speakers' },
+              { icon: '✨', text: 'AI summary, action items & follow-ups' },
+              { icon: '📧', text: 'Emails notes to you and attendees' },
+            ].map(({ icon, text }) => (
+              <div key={text} style={s.loginFeatureRow}>
+                <span style={s.loginFeatureIcon}>{icon}</span>
+                <span style={s.loginFeatureText}>{text}</span>
+              </div>
+            ))}
+          </div>
+          <div style={s.loginActions}>
+            <button style={s.loginBtn} onClick={handleLogin}>
+              <GoogleIcon /> Sign in with Google
+            </button>
+            <p style={s.loginDisclaimer}>Reads your calendar · sends notes via Gmail</p>
+          </div>
         </div>
       </div>
     )
@@ -192,6 +211,10 @@ export default function Popup() {
 
   const activeMeetings = meetings.filter((m) => ACTIVE_STATUSES.has(m.status))
   const pastMeetings = meetings.filter((m) => m.status === 'done')
+  const isFree = !billing || billing.plan === 'free'
+  const atLimit = billing?.atLimit ?? false
+  const usagePct = billing && billing.limit ? Math.min(100, (billing.used / billing.limit) * 100) : 0
+  const nearLimit = isFree && billing && billing.limit && billing.used >= billing.limit - 1
 
   return (
     <div style={s.root}>
@@ -201,12 +224,59 @@ export default function Popup() {
           <Logo /><span style={s.wordmark}>MeetBot</span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {billing && (
+            <button
+              style={{
+                ...s.planChip,
+                background: billing.plan === 'free' ? '#f3f4f6' : billing.plan === 'team' ? '#f5f3ff' : '#eff6ff',
+                color: billing.plan === 'free' ? '#374151' : billing.plan === 'team' ? '#6d28d9' : '#1d4ed8',
+              }}
+              onClick={() => setShowSettings(true)}
+              title="View plan"
+            >
+              {billing.plan === 'free' ? 'Free' : billing.plan === 'team' ? 'Team' : 'Pro'}
+            </button>
+          )}
           <button style={s.iconBtn} onClick={handleRefresh} title="Refresh"><RefreshIcon /></button>
           <button style={s.iconBtn} onClick={() => setShowSettings(true)} title="Settings"><GearIcon /></button>
         </div>
       </div>
 
-      {/* Join any meeting */}
+      {/* Free tier usage bar */}
+      {isFree && billing && (
+        <div style={{ ...s.usageBanner, borderColor: atLimit ? '#fecaca' : nearLimit ? '#fde68a' : '#f0f0f0', background: atLimit ? '#fff5f5' : nearLimit ? '#fffbeb' : '#fafafa' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+            <span style={{ ...s.usageLabel, color: atLimit ? '#dc2626' : '#6b7280' }}>
+              {atLimit ? 'Monthly limit reached' : `${billing.used} / ${billing.limit} meetings used`}
+            </span>
+            <button style={s.usageUpgradeLink} onClick={() => setShowSettings(true)}>
+              {atLimit ? 'Upgrade now →' : 'Upgrade for unlimited →'}
+            </button>
+          </div>
+          <div style={s.usageTrack}>
+            <div style={{ ...s.usageFill, width: `${usagePct}%`, background: atLimit ? '#dc2626' : nearLimit ? '#f59e0b' : '#1a73e8' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Hard limit wall — replaces join section when free tier is exhausted */}
+      {atLimit ? (
+        <div style={s.limitWall}>
+          <div style={s.limitWallIcon}>🚫</div>
+          <div style={s.limitWallTitle}>You've used all {billing?.limit} free meetings</div>
+          <p style={s.limitWallSub}>Upgrade to Pro for unlimited meetings, Slack routing, and AI scorecards.</p>
+          <button
+            style={s.limitWallBtn}
+            onClick={() => auth.status === 'authenticated' && createCheckout(auth.token, 'pro').then(({ url }) => chrome.tabs.create({ url })).catch(() => {})}
+          >
+            Upgrade to Pro · $5/mo
+          </button>
+          <button style={s.limitWallSecondary} onClick={() => setShowSettings(true)}>
+            View plan details
+          </button>
+        </div>
+      ) : (
+      /* Join any meeting */
       <div style={s.joinSection}>
         <button
           style={s.joinToggle}
@@ -274,6 +344,7 @@ export default function Popup() {
           </div>
         )}
       </div>
+      )}
 
       {/* Search across all meetings */}
       <div style={s.searchWrap}>
@@ -337,8 +408,13 @@ export default function Popup() {
           {activeMeetings.length === 0 && pastMeetings.length === 0 && (
             <div style={s.empty}>
               <CalendarIcon />
-              <p style={s.emptyTitle}>No meetings yet</p>
-              <p style={s.emptySub}>MeetBot auto-joins meetings from your Google Calendar, or use the join button above.</p>
+              <p style={s.emptyTitle}>Ready for your first meeting</p>
+              <p style={s.emptySub}>MeetBot reads your Google Calendar and auto-joins upcoming calls — no setup needed.</p>
+              <div style={s.emptySteps}>
+                <div style={s.emptyStep}><span style={s.emptyStepNum}>1</span><span>Schedule a Zoom, Meet, or Teams call in Google Calendar</span></div>
+                <div style={s.emptyStep}><span style={s.emptyStepNum}>2</span><span>MeetBot joins 1 min before start</span></div>
+                <div style={s.emptyStep}><span style={s.emptyStepNum}>3</span><span>Notes + action items emailed after</span></div>
+              </div>
             </div>
           )}
 
@@ -438,11 +514,16 @@ const s: Record<string, React.CSSProperties> = {
   root: { display: 'flex', flexDirection: 'column', minHeight: 520, background: '#fff' },
   header: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '13px 16px', borderBottom: '1px solid #f0f0f0',
+    padding: '11px 14px', borderBottom: '1px solid #f0f0f0',
   },
   wordmark: {
     fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 15,
     letterSpacing: '-0.5px', color: '#0f0f0f',
+  },
+  planChip: {
+    border: 'none', cursor: 'pointer', borderRadius: 99, padding: '3px 9px',
+    fontFamily: "'DM Mono', monospace", fontSize: 10.5, fontWeight: 500,
+    letterSpacing: '0.2px', transition: 'opacity 0.15s',
   },
   iconBtn: {
     background: 'none', border: 'none', cursor: 'pointer',
@@ -453,6 +534,87 @@ const s: Record<string, React.CSSProperties> = {
     background: 'none', border: 'none', fontSize: 13.5, cursor: 'pointer',
     color: '#1a73e8', fontWeight: 500, letterSpacing: '-0.3px', padding: 0,
     fontFamily: "'Plus Jakarta Sans', sans-serif", marginRight: 10,
+  },
+
+  // Free tier usage
+  usageBanner: {
+    padding: '8px 14px 9px', borderBottom: '1px solid', transition: 'background 0.2s',
+  },
+  usageLabel: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, letterSpacing: '-0.2px',
+  },
+  usageUpgradeLink: {
+    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11.5, color: '#1a73e8',
+    fontWeight: 600, letterSpacing: '-0.2px',
+  },
+  usageTrack: {
+    height: 3, background: '#e5e7eb', borderRadius: 99, overflow: 'hidden',
+  },
+  usageFill: {
+    height: '100%', borderRadius: 99, transition: 'width 0.4s, background 0.2s',
+  },
+
+  // Hard limit wall
+  limitWall: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    padding: '28px 24px 20px', borderBottom: '1px solid #fee2e2', background: '#fff5f5',
+    textAlign: 'center',
+  },
+  limitWallIcon: { fontSize: 32, marginBottom: 10, lineHeight: 1 },
+  limitWallTitle: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 15,
+    color: '#0f0f0f', letterSpacing: '-0.4px', marginBottom: 6,
+  },
+  limitWallSub: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, color: '#6b7280',
+    lineHeight: 1.55, letterSpacing: '-0.2px', marginBottom: 16, maxWidth: 260,
+  },
+  limitWallBtn: {
+    width: '100%', padding: '11px 0', background: '#1a73e8', color: '#fff',
+    border: 'none', borderRadius: 9, fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 14, fontWeight: 600, cursor: 'pointer', letterSpacing: '-0.3px', marginBottom: 8,
+  },
+  limitWallSecondary: {
+    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12.5, color: '#9ca3af',
+    letterSpacing: '-0.2px',
+  },
+
+  // Login — full screen redesign
+  loginScreen: {
+    flex: 1, display: 'flex', flexDirection: 'column', minHeight: 520,
+    background: 'linear-gradient(160deg, #f8faff 0%, #fff 60%)',
+  },
+  loginHero: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    padding: '40px 28px 24px', textAlign: 'center',
+  },
+  loginLogoWrap: { marginBottom: 14 },
+  loginTitle: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 800, fontSize: 26,
+    letterSpacing: '-0.8px', color: '#0f0f0f', margin: '0 0 8px',
+  },
+  loginTagline: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 14.5, color: '#6b7280',
+    letterSpacing: '-0.3px', margin: 0, lineHeight: 1.5,
+  },
+  loginFeatures: {
+    padding: '0 22px', display: 'flex', flexDirection: 'column', gap: 10,
+  },
+  loginFeatureRow: {
+    display: 'flex', alignItems: 'center', gap: 12,
+    background: '#fff', borderRadius: 10, padding: '11px 14px',
+    border: '1px solid #f0f4ff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+  },
+  loginFeatureIcon: { fontSize: 18, lineHeight: 1, flexShrink: 0 },
+  loginFeatureText: {
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13.5, color: '#1f2937',
+    letterSpacing: '-0.2px', lineHeight: 1.4,
+  },
+  loginActions: {
+    padding: '20px 22px 28px', display: 'flex', flexDirection: 'column', gap: 10,
+    marginTop: 'auto',
   },
 
   // Join form
@@ -510,30 +672,17 @@ const s: Record<string, React.CSSProperties> = {
     background: '#f3f4f6', borderRadius: 99, padding: '2px 7px',
   },
 
-  // Login
-  loginBox: {
-    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-    justifyContent: 'center', padding: '32px 28px', gap: 12,
-  },
-  logoLarge: { marginBottom: 8 },
-  loginTitle: {
-    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 18, fontWeight: 700,
-    letterSpacing: '-0.5px', color: '#0f0f0f', textAlign: 'center',
-  },
-  loginSub: {
-    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 14, color: '#4b5563',
-    textAlign: 'center', lineHeight: 1.6, letterSpacing: '-0.2px',
-  },
+  // Login button (kept as standalone style for the loginActions section)
   loginBtn: {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: '#fff', color: '#3c4043', border: '1px solid #dadce0',
-    borderRadius: 8, padding: '11px 22px', fontSize: 14, fontWeight: 500,
-    cursor: 'pointer', marginTop: 8, fontFamily: "'Plus Jakarta Sans', sans-serif",
-    letterSpacing: '-0.3px', width: '100%', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    borderRadius: 10, padding: '12px 22px', fontSize: 14.5, fontWeight: 600,
+    cursor: 'pointer', fontFamily: "'Plus Jakarta Sans', sans-serif",
+    letterSpacing: '-0.3px', width: '100%', boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
   },
   loginDisclaimer: {
     fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, color: '#9ca3af',
-    letterSpacing: '-0.2px', textAlign: 'center' as const, lineHeight: 1.5, marginTop: 4,
+    letterSpacing: '-0.2px', textAlign: 'center' as const, lineHeight: 1.5, margin: 0,
   },
 
   center: {
@@ -543,15 +692,31 @@ const s: Record<string, React.CSSProperties> = {
   },
   empty: {
     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-    justifyContent: 'center', padding: '48px 28px', textAlign: 'center',
+    justifyContent: 'center', padding: '36px 24px 28px', textAlign: 'center',
   },
   emptyTitle: {
-    fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 15,
-    color: '#111827', letterSpacing: '-0.4px', marginBottom: 7,
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 15.5,
+    color: '#111827', letterSpacing: '-0.4px', marginBottom: 6, marginTop: 0,
   },
   emptySub: {
     fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13.5, color: '#6b7280',
-    lineHeight: 1.6, letterSpacing: '-0.2px',
+    lineHeight: 1.6, letterSpacing: '-0.2px', marginBottom: 20, maxWidth: 280,
+  },
+  emptySteps: {
+    display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 290,
+    textAlign: 'left',
+  },
+  emptyStep: {
+    display: 'flex', alignItems: 'flex-start', gap: 10,
+    fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12.5, color: '#374151',
+    letterSpacing: '-0.2px', lineHeight: 1.45,
+    background: '#f8faff', borderRadius: 8, padding: '9px 12px',
+    border: '1px solid #e8f0fe',
+  },
+  emptyStepNum: {
+    width: 18, height: 18, borderRadius: '50%', background: '#1a73e8',
+    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 700, flexShrink: 0,
   },
   errorBar: {
     margin: '10px 14px', padding: '12px 14px', background: '#fef2f2',

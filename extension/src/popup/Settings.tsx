@@ -29,6 +29,7 @@ export default function Settings({ email, token, onDisconnect }: Props) {
   const [saving, setSaving] = useState<'slack' | 'hubspot' | null>(null)
   const [saveMsg, setSaveMsg] = useState<{ key: string; msg: string; ok: boolean } | null>(null)
   const [upgrading, setUpgrading] = useState(false)
+  const [syncingBilling, setSyncingBilling] = useState(true)
 
   const toggle = (id: string) => setExpanded(prev => prev === id ? null : id)
   const isPro = billing?.plan === 'pro' || billing?.plan === 'team'
@@ -43,10 +44,12 @@ export default function Settings({ email, token, onDisconnect }: Props) {
       getMeetingStats(token).then(setStats).catch(() => {})
       // Sync with LS on every popup open (catches completed checkouts — popup
       // is destroyed when a new tab opens, so visibilitychange never fires)
+      setSyncingBilling(true)
       syncBilling(token)
         .then(() => getBilling(token))
         .then(setBilling)
         .catch(() => getBilling(token).then(setBilling).catch(() => {}))
+        .finally(() => setSyncingBilling(false))
     }
 
     loadAll()
@@ -147,7 +150,14 @@ export default function Settings({ email, token, onDisconnect }: Props) {
 
       {/* ── Plan ──────────────────────────────────────────────────────── */}
       <div style={s.section}>
-        <SectionLabel>Plan</SectionLabel>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={s.label}>Plan</div>
+          {syncingBilling && (
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: '#9ca3af', letterSpacing: '0.3px' }}>
+              syncing…
+            </span>
+          )}
+        </div>
         {billing?.plan === 'free' ? (
           <div style={s.planCard}>
             <div style={s.planCardTop}>
