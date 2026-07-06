@@ -30,6 +30,8 @@ export default function Settings({ email, token, onDisconnect }: Props) {
   const [saveMsg, setSaveMsg] = useState<{ key: string; msg: string; ok: boolean } | null>(null)
   const [upgrading, setUpgrading] = useState(false)
   const [syncingBilling, setSyncingBilling] = useState(true)
+  const [portalError, setPortalError] = useState<string | null>(null)
+  const [openingPortal, setOpeningPortal] = useState(false)
 
   const toggle = (id: string) => setExpanded(prev => prev === id ? null : id)
   const isPro = billing?.plan === 'pro' || billing?.plan === 'team'
@@ -65,10 +67,19 @@ export default function Settings({ email, token, onDisconnect }: Props) {
   }
 
   async function handleManageBilling() {
+    setOpeningPortal(true)
+    setPortalError(null)
     try {
-      const { url } = await openBillingPortal(token)
-      chrome.tabs.create({ url })
-    } catch { /* non-fatal */ }
+      const result = await openBillingPortal(token) as { url: string; fallback?: boolean }
+      chrome.tabs.create({ url: result.url })
+      if (result.fallback) {
+        setPortalError('Direct link unavailable — opening your Lemon Squeezy account instead.')
+      }
+    } catch {
+      setPortalError('Could not open billing portal. Check your receipt email to manage your subscription.')
+    } finally {
+      setOpeningPortal(false)
+    }
   }
 
   async function handleSaveSlack() {
@@ -205,9 +216,18 @@ export default function Settings({ email, token, onDisconnect }: Props) {
               </div>
               <span style={{ ...s.pill, color: '#14532d', background: '#f0fdf4' }}>Active</span>
             </div>
-            <button style={s.manageBtn} onClick={handleManageBilling}>
-              Manage subscription
+            <button
+              style={{ ...s.manageBtn, opacity: openingPortal ? 0.6 : 1 }}
+              onClick={handleManageBilling}
+              disabled={openingPortal}
+            >
+              {openingPortal ? 'Opening…' : 'Manage subscription →'}
             </button>
+            {portalError && (
+              <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, color: '#b45309', marginTop: 8, letterSpacing: '-0.2px', lineHeight: 1.5 }}>
+                {portalError}
+              </p>
+            )}
           </div>
         ) : null}
       </div>
