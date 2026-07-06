@@ -73,11 +73,12 @@ export default function Settings({ email, token, onDisconnect }: Props) {
     setOpeningPortal(true)
     setPortalError(null)
     try {
-      const { updatePaymentUrl } = await openBillingPortal(token)
-      if (updatePaymentUrl) {
-        chrome.tabs.create({ url: updatePaymentUrl })
+      const { updatePaymentUrl, customerPortalUrl } = await openBillingPortal(token)
+      const url = updatePaymentUrl ?? customerPortalUrl
+      if (url) {
+        chrome.tabs.create({ url })
       } else {
-        setPortalError('Payment update link unavailable. Check your receipt email from Lemon Squeezy.')
+        setPortalError('Payment update link unavailable. Log in at app.lemonsqueezy.com to manage your subscription.')
       }
     } catch {
       setPortalError('Could not fetch payment update link.')
