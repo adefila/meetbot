@@ -11,8 +11,8 @@ const MEETING_TYPES = [
   { value: 'general', label: 'General' },
 ]
 
-type EditForm = { label: string; meetingTypes: string[]; webhookUrl: string }
-const BLANK_FORM: EditForm = { label: '', meetingTypes: [], webhookUrl: '' }
+type EditForm = { label: string; domains: string[]; meetingTypes: string[]; webhookUrl: string; domainInput: string }
+const BLANK_FORM: EditForm = { label: '', domains: [], meetingTypes: [], webhookUrl: '', domainInput: '' }
 
 type Props = { email: string; token: string; onDisconnect: () => void }
 
@@ -130,8 +130,14 @@ export default function Settings({ email, token, onDisconnect }: Props) {
 
   function commitEditForm() {
     if (!editForm.webhookUrl.trim()) return
+    const autoLabel = editForm.domains.length > 0
+      ? editForm.domains.join(', ')
+      : editForm.meetingTypes.length > 0
+        ? editForm.meetingTypes.map(t => MEETING_TYPES.find(m => m.value === t)?.label ?? t).join(' / ')
+        : 'Default'
     const ch: SlackChannel = {
-      label: editForm.label.trim() || (editForm.meetingTypes.length === 0 ? 'Default' : editForm.meetingTypes.map(t => MEETING_TYPES.find(m => m.value === t)?.label ?? t).join(' / ')),
+      label: editForm.label.trim() || autoLabel,
+      domains: editForm.domains,
       meetingTypes: editForm.meetingTypes,
       webhookUrl: editForm.webhookUrl.trim(),
     }
@@ -376,12 +382,14 @@ export default function Settings({ email, token, onDisconnect }: Props) {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={s.channelLabel}>{ch.label || 'Unnamed'}</div>
                             <div style={s.channelMeta}>
-                              {ch.meetingTypes.length === 0
-                                ? 'Default (all types)'
-                                : ch.meetingTypes.map(t => MEETING_TYPES.find(m => m.value === t)?.label ?? t).join(', ')}
+                              {ch.domains?.length
+                                ? `@${ch.domains.join(', @')}`
+                                : ch.meetingTypes?.length
+                                  ? ch.meetingTypes.map(t => MEETING_TYPES.find(m => m.value === t)?.label ?? t).join(', ')
+                                  : 'Default (all meetings)'}
                             </div>
                           </div>
-                          <button style={s.channelEditBtn} onClick={() => { setEditingIdx(idx); setEditForm({ label: ch.label, meetingTypes: [...ch.meetingTypes], webhookUrl: ch.webhookUrl }) }}>Edit</button>
+                          <button style={s.channelEditBtn} onClick={() => { setEditingIdx(idx); setEditForm({ label: ch.label, domains: [...(ch.domains ?? [])], meetingTypes: [...(ch.meetingTypes ?? [])], webhookUrl: ch.webhookUrl, domainInput: '' }) }}>Edit</button>
                           <button style={s.channelRemoveBtn} onClick={() => removeChannel(idx)}>×</button>
                         </div>
                       ))}
@@ -400,11 +408,47 @@ export default function Settings({ email, token, onDisconnect }: Props) {
                     <div style={s.editForm}>
                       <input
                         style={{ ...s.integInput, marginBottom: 8 }}
-                        placeholder="Channel label (e.g. Recruiting)"
+                        placeholder="Channel label (e.g. Company X)"
                         value={editForm.label}
                         onChange={(e) => setEditForm(f => ({ ...f, label: e.target.value }))}
                       />
-                      <p style={{ ...s.integHelp, marginBottom: 6 }}>Route these meeting types here (leave all unchecked for default):</p>
+
+                      {/* Domain routing */}
+                      <p style={{ ...s.integHelp, marginBottom: 5 }}>
+                        <strong>Route by company</strong> — send here when an attendee's email matches:
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5, marginBottom: 6 }}>
+                        {editForm.domains.map((d) => (
+                          <span key={d} style={s.domainTag}>
+                            @{d}
+                            <button
+                              style={s.domainTagRemove}
+                              onClick={() => setEditForm(f => ({ ...f, domains: f.domains.filter(x => x !== d) }))}
+                            >×</button>
+                          </span>
+                        ))}
+                        <input
+                          style={s.domainInput}
+                          placeholder="companyx.com"
+                          value={editForm.domainInput}
+                          onChange={(e) => setEditForm(f => ({ ...f, domainInput: e.target.value.toLowerCase().replace(/^@/, '') }))}
+                          onKeyDown={(e) => {
+                            if ((e.key === 'Enter' || e.key === ' ' || e.key === ',') && editForm.domainInput.trim()) {
+                              e.preventDefault()
+                              const d = editForm.domainInput.trim().replace(/^@/, '')
+                              if (d && !editForm.domains.includes(d)) {
+                                setEditForm(f => ({ ...f, domains: [...f.domains, d], domainInput: '' }))
+                              } else {
+                                setEditForm(f => ({ ...f, domainInput: '' }))
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <p style={{ ...s.integHelp, marginBottom: 6, marginTop: 10 }}>
+                        <strong>Route by meeting type</strong> — fallback if no domain match:
+                      </p>
                       <div style={s.typeGrid}>
                         {MEETING_TYPES.map(mt => (
                           <label key={mt.value} style={s.typeCheck}>
@@ -891,6 +935,21 @@ const s: Record<string, React.CSSProperties> = {
   editForm: {
     background: '#fff', border: '1px solid #e8f0fe', borderRadius: 10,
     padding: '12px', display: 'flex', flexDirection: 'column' as const,
+  },
+  domainTag: {
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 99,
+    padding: '2px 8px', fontFamily: "'DM Mono', monospace", fontSize: 11,
+    color: '#1d4ed8', letterSpacing: '-0.1px',
+  },
+  domainTagRemove: {
+    background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0 2px',
+    color: '#93c5fd', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center',
+  },
+  domainInput: {
+    border: '1px dashed #d1d5db', borderRadius: 99, padding: '2px 10px',
+    fontFamily: "'DM Mono', monospace", fontSize: 11, color: '#374151',
+    outline: 'none', background: '#fafafa', minWidth: 110,
   },
   typeGrid: {
     display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px',

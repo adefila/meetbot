@@ -49,8 +49,9 @@ export type AuthState =
 
 export type SlackChannel = {
   label: string
-  meetingTypes: string[]
   webhookUrl: string
+  domains: string[]       // route by attendee email domain e.g. ["companyx.com"]
+  meetingTypes: string[]  // route by meeting type (fallback after domain)
 }
 
 export type Integrations = {

@@ -7,8 +7,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
 
 export type SlackChannel = {
   label: string
-  meetingTypes: string[]
   webhookUrl: string
+  domains: string[]       // attendee email domains e.g. ["companyx.com"]
+  meetingTypes: string[]  // meeting type fallback
 }
 
 export type User = {

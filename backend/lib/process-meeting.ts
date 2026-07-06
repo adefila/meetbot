@@ -189,20 +189,49 @@ export async function sendSummaryEmails(
 
 /**
  * Returns the Slack webhook URL to use for this meeting.
- * Pro users get per-meeting-type routing via slack_webhooks array;
- * all users fall back to the legacy single slack_webhook_url.
+ *
+ * Priority:
+ * 1. Domain match  — any attendee's email domain appears in ch.domains
+ * 2. Type match    — meeting type appears in ch.meetingTypes
+ * 3. Catch-all     — channel with both domains and meetingTypes empty
+ * 4. Legacy        — single slack_webhook_url
  */
-function resolveSlackWebhook(user: User, meetingType: string): string | null {
+function resolveSlackWebhook(
+  user: User,
+  meetingType: string,
+  attendees: Array<{ name: string; email: string }>
+): string | null {
   const channels = user.slack_webhooks
   if (channels?.length) {
-    // 1. Exact type match
-    const match = channels.find((ch) => ch.meetingTypes.includes(meetingType))
-    if (match) return match.webhookUrl
-    // 2. Catch-all channel (no meeting types assigned = handles everything else)
-    const catchAll = channels.find((ch) => ch.meetingTypes.length === 0)
+    // Extract unique domains from attendee emails (skip the user's own domain)
+    const attendeeDomains = [
+      ...new Set(
+        attendees
+          .map((a) => a.email?.split('@')[1]?.toLowerCase())
+          .filter(Boolean) as string[]
+      ),
+    ]
+
+    // 1. Domain match — first channel whose domains overlap with attendee domains
+    if (attendeeDomains.length) {
+      const domainMatch = channels.find(
+        (ch) => ch.domains?.length && ch.domains.some((d) => attendeeDomains.includes(d.toLowerCase()))
+      )
+      if (domainMatch) return domainMatch.webhookUrl
+    }
+
+    // 2. Meeting type match
+    const typeMatch = channels.find((ch) => ch.meetingTypes?.includes(meetingType))
+    if (typeMatch) return typeMatch.webhookUrl
+
+    // 3. Catch-all — no domains and no types configured
+    const catchAll = channels.find(
+      (ch) => (!ch.domains?.length) && (!ch.meetingTypes?.length)
+    )
     if (catchAll) return catchAll.webhookUrl
   }
-  // 3. Legacy single webhook
+
+  // 4. Legacy single webhook
   return user.slack_webhook_url ?? null
 }
 
@@ -306,7 +335,7 @@ export async function processMeeting(
     key_decisions: insights.key_decisions,
   }
 
-  const slackWebhook = resolveSlackWebhook(user, meeting.meeting_type ?? 'general')
+  const slackWebhook = resolveSlackWebhook(user, meeting.meeting_type ?? 'general', emailAttendees)
 
   await Promise.allSettled([
     // Slack digest — routes to the channel that matches the meeting type
