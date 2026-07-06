@@ -160,12 +160,12 @@ export default function Popup() {
             <p style={s.loginTagline}>AI notes for every meeting — automatic.</p>
           </div>
           <div style={s.loginFeatures}>
-            {[
-              { icon: '📅', text: 'Auto-joins from Google Calendar' },
-              { icon: '🎙️', text: 'Records + transcribes with speakers' },
-              { icon: '✨', text: 'AI summary, action items & follow-ups' },
-              { icon: '📧', text: 'Emails notes to you and attendees' },
-            ].map(({ icon, text }) => (
+            {([
+              { icon: <FeatureCalIcon />, text: 'Auto-joins from Google Calendar' },
+              { icon: <FeatureMicIcon />, text: 'Records + transcribes with speakers' },
+              { icon: <FeatureAiIcon />,  text: 'AI summary, action items & follow-ups' },
+              { icon: <FeatureMailIcon />, text: 'Emails notes to you and attendees' },
+            ] as { icon: React.ReactNode; text: string }[]).map(({ icon, text }) => (
               <div key={text} style={s.loginFeatureRow}>
                 <span style={s.loginFeatureIcon}>{icon}</span>
                 <span style={s.loginFeatureText}>{text}</span>
@@ -262,7 +262,7 @@ export default function Popup() {
       {/* Hard limit wall — replaces join section when free tier is exhausted */}
       {atLimit ? (
         <div style={s.limitWall}>
-          <div style={s.limitWallIcon}>🚫</div>
+          <div style={s.limitWallIcon}><LimitIcon /></div>
           <div style={s.limitWallTitle}>You've used all {billing?.limit} free meetings</div>
           <p style={s.limitWallSub}>Upgrade to Pro for unlimited meetings, Slack routing, and AI scorecards.</p>
           <button
@@ -509,6 +509,67 @@ function GearIcon() {
   )
 }
 
+// ── Feature row icons (login screen) ──────────────────────────────────────────
+
+function FeatureCalIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#eff6ff"/>
+      <rect x="7" y="9" width="18" height="16" rx="2.5" stroke="#1a73e8" strokeWidth="1.6"/>
+      <path d="M7 14h18" stroke="#1a73e8" strokeWidth="1.6"/>
+      <path d="M12 7v4M20 7v4" stroke="#1a73e8" strokeWidth="1.6" strokeLinecap="round"/>
+      <rect x="10" y="17" width="4" height="3.5" rx="1" fill="#1a73e8" fillOpacity=".35"/>
+      <rect x="16" y="17" width="4" height="3.5" rx="1" fill="#1a73e8" fillOpacity=".7"/>
+    </svg>
+  )
+}
+
+function FeatureMicIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#f0fdf4"/>
+      <rect x="13" y="7" width="6" height="11" rx="3" stroke="#16a34a" strokeWidth="1.6"/>
+      <path d="M10 18c0 3.314 2.686 6 6 6s6-2.686 6-6" stroke="#16a34a" strokeWidth="1.6" strokeLinecap="round"/>
+      <line x1="16" y1="24" x2="16" y2="27" stroke="#16a34a" strokeWidth="1.6" strokeLinecap="round"/>
+      <line x1="13" y1="27" x2="19" y2="27" stroke="#16a34a" strokeWidth="1.6" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function FeatureAiIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#faf5ff"/>
+      {/* Large star */}
+      <path d="M16 8l1.8 5.2H23l-4.4 3.2 1.7 5.1L16 18.4l-4.3 3.1 1.7-5.1L9 13.2h5.2z" fill="#7c3aed" fillOpacity=".85"/>
+      {/* Small sparkle top-right */}
+      <path d="M23 8l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z" fill="#7c3aed" fillOpacity=".5"/>
+      {/* Small sparkle bottom-left */}
+      <path d="M9 21l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5z" fill="#7c3aed" fillOpacity=".4"/>
+    </svg>
+  )
+}
+
+function FeatureMailIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#fff7ed"/>
+      <rect x="6" y="10" width="20" height="14" rx="2.5" stroke="#ea580c" strokeWidth="1.6"/>
+      <path d="M6 13l10 7 10-7" stroke="#ea580c" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+    </svg>
+  )
+}
+
+function LimitIcon() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+      <circle cx="20" cy="20" r="20" fill="#fef2f2"/>
+      <circle cx="20" cy="20" r="11" stroke="#dc2626" strokeWidth="1.8" fill="none"/>
+      <line x1="12.2" y1="12.2" x2="27.8" y2="27.8" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s: Record<string, React.CSSProperties> = {
   root: { display: 'flex', flexDirection: 'column', minHeight: 520, background: '#fff' },
@@ -561,7 +622,7 @@ const s: Record<string, React.CSSProperties> = {
     padding: '28px 24px 20px', borderBottom: '1px solid #fee2e2', background: '#fff5f5',
     textAlign: 'center',
   },
-  limitWallIcon: { fontSize: 32, marginBottom: 10, lineHeight: 1 },
+  limitWallIcon: { marginBottom: 10, lineHeight: 1, display: 'flex', justifyContent: 'center' },
   limitWallTitle: {
     fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 15,
     color: '#0f0f0f', letterSpacing: '-0.4px', marginBottom: 6,
@@ -607,7 +668,7 @@ const s: Record<string, React.CSSProperties> = {
     background: '#fff', borderRadius: 10, padding: '11px 14px',
     border: '1px solid #f0f4ff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
   },
-  loginFeatureIcon: { fontSize: 18, lineHeight: 1, flexShrink: 0 },
+  loginFeatureIcon: { flexShrink: 0, display: 'flex', alignItems: 'center' },
   loginFeatureText: {
     fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13.5, color: '#1f2937',
     letterSpacing: '-0.2px', lineHeight: 1.4,
